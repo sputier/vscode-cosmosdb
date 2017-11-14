@@ -114,14 +114,16 @@ export class GraphViewServer extends EventEmitter {
       this._previousPageState.errorMessage = undefined;
       this._previousPageState.isQueryRunning = true;
       this._previousPageState.runningQueryId = queryId;
+
       var queryResults = await this.executeQuery(queryId, gremlinQuery);
       results = { queryResults, edgeResults: [] };
+      this._previousPageState.results = results;
 
       // If it returned any vertices, we need to also query for edges
-      if (queryResults.find(v => v.type === "vertex")) {
+      let vertices = queryResults.filter(n => n.type === "vertex" && typeof n.id === "string");
+      if (vertices.length) {
         try {
-          results.edgeResults = await this.executeQuery(queryId, gremlinQuery + ".bothE()");
-          this._previousPageState.results = results;
+          results.edgeResults = await this.queryEdges(queryId, vertices);
         } catch (edgesError) {
           // Swallow and just return vertices
           console.warn("Error querying for edges: ", (edgesError.message || edgesError));
@@ -138,6 +140,13 @@ export class GraphViewServer extends EventEmitter {
     }
 
     this._socket.emit("showResults", queryId, results.queryResults, results.edgeResults);
+  }
+
+  private async queryEdges(queryId: number, vertices: { id: string }[]): Promise<{}[]> {
+    // Build query: g.V("id1", "id2", ...).outE()
+    let vertexIds = vertices.map(v => `"${v.id}"`).join(",");
+    let query = `g.V(${vertexIds}).outE()`;
+    return this.executeQuery(queryId, query);
   }
 
   private removeErrorCallStack(message: string): string {
