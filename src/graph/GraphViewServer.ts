@@ -143,10 +143,38 @@ export class GraphViewServer extends EventEmitter {
   }
 
   private async queryEdges(queryId: number, vertices: { id: string }[]): Promise<{}[]> {
-    // Build query: g.V("id1", "id2", ...).outE()
-    let vertexIds = vertices.map(v => `"${v.id}"`).join(",");
-    let query = `g.V(${vertexIds}).outE()`;
-    return this.executeQuery(queryId, query);
+    // Split into multiple queries because they fail if they're too large
+    // Each of the form: g.V("id1", "id2", ...).outE().dedup()
+    // Picks up the outgoing edges of all vertices, and removes duplicates
+    let maxIdListLength = 5000; // Liberal buffer, queries seem to start failing around 14,000 characters
+    let promises: Promise<{}[]>[] = [];
+
+    let idLists: string[] = [];
+    let currentIdList = "";
+
+    for (let i = 0; i < vertices.length; ++i) {
+      let vertexId = `"${vertices[i].id}"`;
+      if (currentIdList.length && currentIdList.length + vertexId.length > maxIdListLength) {
+        // Start a new id list
+        idLists.push(currentIdList);
+        currentIdList = "";
+      }
+      currentIdList = (currentIdList ? (currentIdList + ",") : currentIdList) + vertexId;
+    }
+    if (currentIdList.length) {
+      idLists.push(currentIdList);
+    }
+
+    // Build queries from each list of IDs
+    let resultSets: {}[][] = [];
+    for (let i = 0; i < idLists.length; ++i) {
+      let idList = idLists[i];
+      let query = `g.V(${idList}).outE().dedup()`;
+      var results = await this.executeQuery(queryId, query);
+      resultSets.push(results);
+    }
+
+    return Array.prototype.concat(...resultSets);
   }
 
   private removeErrorCallStack(message: string): string {
