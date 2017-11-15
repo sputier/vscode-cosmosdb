@@ -74,3 +74,11 @@ export async function getUniqueFileName(folderPath: string, fileName: string, fi
 
 	throw new Error('Could not find unique name for new file.');
 }
+
+export function truncateWithEllipses(s: string, maxCharacters) {
+	if (s && s.length > maxCharacters) {
+		return `${s.slice(0, maxCharacters)}...`;
+	}
+
+	return s;
+}

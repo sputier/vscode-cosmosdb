@@ -11,11 +11,16 @@ import * as io from 'socket.io';
 import { setInterval } from 'timers';
 import { GraphConfiguration } from './GraphConfiguration';
 import * as gremlin from "gremlin";
+import { truncateWithEllipses } from "../util";
 
 type Results = {
   queryResults: any[];
   edgeResults: any[];
 };
+
+function truncateQuery(query: string) {
+  return truncateWithEllipses(query, 100);
+}
 
 /**
  * @class GraphViewServer This is the server side of the graph explorer. It handles all communications
@@ -35,7 +40,6 @@ export class GraphViewServer extends EventEmitter {
     isQueryRunning: boolean,
     runningQueryId: number
   };
-
 
   constructor(private _configuration: GraphConfiguration) {
     super();
@@ -100,7 +104,7 @@ export class GraphViewServer extends EventEmitter {
       });
 
       this._server.on('error', socket => {
-        this.log("Error from server");
+        console.error("Error from server");
       });
     });
   }
@@ -147,13 +151,13 @@ export class GraphViewServer extends EventEmitter {
     // Each of the form: g.V("id1", "id2", ...).outE().dedup()
     // Picks up the outgoing edges of all vertices, and removes duplicates
     let maxIdListLength = 5000; // Liberal buffer, queries seem to start failing around 14,000 characters
-    let promises: Promise<{}[]>[] = [];
 
     let idLists: string[] = [];
     let currentIdList = "";
 
     for (let i = 0; i < vertices.length; ++i) {
       let vertexId = `"${vertices[i].id}"`;
+      vertexId += "                                        ".slice(vertexId.length); // asdf
       if (currentIdList.length && currentIdList.length + vertexId.length > maxIdListLength) {
         // Start a new id list
         idLists.push(currentIdList);
@@ -166,15 +170,16 @@ export class GraphViewServer extends EventEmitter {
     }
 
     // Build queries from each list of IDs
-    let resultSets: {}[][] = [];
+    let promises: Promise<any[]>[] = [];
     for (let i = 0; i < idLists.length; ++i) {
       let idList = idLists[i];
       let query = `g.V(${idList}).outE().dedup()`;
-      var results = await this.executeQuery(queryId, query);
-      resultSets.push(results);
+      var promise = this.executeQuery(queryId, query);
+      promises.push(promise);
     }
 
-    return Array.prototype.concat(...resultSets);
+    var results = await Promise.all(promises);
+    return Array.prototype.concat(...results);
   }
 
   private removeErrorCallStack(message: string): string {
@@ -193,7 +198,34 @@ export class GraphViewServer extends EventEmitter {
   }
 
   private async executeQuery(queryId: number, gremlinQuery: string): Promise<any[]> {
-    this.log(`Executing query #${queryId}: ${gremlinQuery}`);
+    const maxRetries = 3; // original try + this many extra tries
+    const retryDurationMs = 1000;
+    let iTry = 0;
+
+    while (true) {
+      iTry++;
+
+      try {
+        if (iTry > 1) {
+          this.log(`Retry #${iTry - 1} for query ${queryId}: ${truncateQuery(gremlinQuery)}`);
+        }
+        return await this._executeQueryCore(queryId, gremlinQuery);
+      } catch (err) {
+        if (this.isErrorRetryable(err)) {
+          if (iTry >= maxRetries) {
+            this.log(`Max retries reached for query ${queryId}: ${truncateQuery(gremlinQuery)}`);
+          } else {
+            continue;
+          }
+        }
+
+        throw err;
+      }
+    }
+  }
+
+  private async _executeQueryCore(queryId: number, gremlinQuery: string): Promise<any[]> {
+    this.log(`Executing query #${queryId}: ${truncateQuery(gremlinQuery)}`);
 
     const client = gremlin.createClient(
       this._configuration.endpointPort,
@@ -220,13 +252,24 @@ export class GraphViewServer extends EventEmitter {
     return new Promise<[{}[]]>((resolve, reject) => {
       client.execute(gremlinQuery, {}, (err, results) => {
         if (err) {
-          this.log("Error from gremlin: ", err.message || err.toString());
+          this.log("Error from gremlin server: ", err.message || err.toString());
           reject(new Error(err));
         }
         this.log("Results from gremlin", results);
         resolve(results);
       });
     });
+  }
+
+  private isErrorRetryable(err: any) {
+    // Unfortunately the gremlin server aggregates errors so we can't simply query for status
+    if (err.message) {
+      if (err.message.match(/Status *: *429/) || err.message.match(/RequestRateRooLarge/)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private handleGetPageState() {
@@ -280,5 +323,6 @@ export class GraphViewServer extends EventEmitter {
   }
 
   private log(message, ...args: any[]) {
+    console.log(message, ...args);
   }
 }
