@@ -192,6 +192,7 @@ export class GraphViewServer extends EventEmitter {
       }
     } catch (error) {
       // Shouldn't happen, just being defensive
+      console.error(error);
     }
 
     return message;
