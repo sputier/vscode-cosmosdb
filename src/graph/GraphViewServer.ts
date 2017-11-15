@@ -11,11 +11,32 @@ import * as io from 'socket.io';
 import { setInterval } from 'timers';
 import { GraphConfiguration } from './GraphConfiguration';
 import * as gremlin from "gremlin";
-import { truncateWithEllipses } from "../util";
+import { truncateWithEllipses, removeDuplicatesById } from "../util";
+import { version } from 'punycode';
+
+let maxVertices = 300;
+let maxEdges = 1000;
+
+interface Edge {
+  id: string;
+  type: "edge";
+  inV: string;  // Edge source ID
+  outV: string; // Edge target ID
+};
+
+interface Vertex {
+  id: string;
+  type: "edge";
+};
 
 type Results = {
-  queryResults: any[];
-  edgeResults: any[];
+  fullResults: any[];
+  countUniqueVertices: number;
+  countUniqueEdges: number;
+
+  // Limited by max
+  limitedVertices: Vertex[];
+  limitedEdges: Edge[];
 };
 
 function truncateQuery(query: string) {
@@ -119,15 +140,28 @@ export class GraphViewServer extends EventEmitter {
       this._previousPageState.isQueryRunning = true;
       this._previousPageState.runningQueryId = queryId;
 
-      var queryResults = await this.executeQuery(queryId, gremlinQuery);
-      results = { queryResults, edgeResults: [] };
+      // Full query results - may contain vertices and/or edges and/or other things
+      var fullResults = await this.executeQuery(queryId, gremlinQuery);
+
+      let vertices = this.getVertices(fullResults);
+      let { limitedVertices, countUniqueVertices } = this.limitVertices(vertices);
+      results = {
+        fullResults,
+        countUniqueVertices: countUniqueVertices,
+        limitedVertices: limitedVertices,
+        countUniqueEdges: 0, // Fill in later
+        limitedEdges: []     // Fill in later
+      };
       this._previousPageState.results = results;
 
-      // If it returned any vertices, we need to also query for edges
-      let vertices = queryResults.filter(n => n.type === "vertex" && typeof n.id === "string");
-      if (vertices.length) {
+      if (results.limitedVertices.length) {
         try {
-          results.edgeResults = await this.queryEdges(queryId, vertices);
+          // If it returned any vertices, we need to also query for edges
+          var edges = await this.queryEdges(queryId, results.limitedVertices);
+          let { countUniqueEdges, limitedEdges } = this.limitEdges(limitedVertices, edges);
+
+          results.countUniqueEdges = countUniqueEdges;
+          results.limitedEdges = limitedEdges;
         } catch (edgesError) {
           // Swallow and just return vertices
           console.warn("Error querying for edges: ", (edgesError.message || edgesError));
@@ -143,10 +177,41 @@ export class GraphViewServer extends EventEmitter {
       this._previousPageState.isQueryRunning = false;
     }
 
-    this._socket.emit("showResults", queryId, results.queryResults, results.edgeResults);
+    this._socket.emit("showResults", queryId, results);
   }
 
-  private async queryEdges(queryId: number, vertices: { id: string }[]): Promise<{}[]> {
+  private getVertices(queryResults: any[]): Vertex[] {
+    return queryResults.filter(n => n.type === "vertex" && typeof n.id === "string");
+  }
+
+  private limitVertices(vertices: Vertex[]): { countUniqueVertices: number, limitedVertices: Vertex[] } {
+    vertices = removeDuplicatesById(vertices);
+    let countUniqueVertices = vertices.length;
+
+    let limitedVertices = vertices.slice(0, maxVertices);
+
+    return { limitedVertices, countUniqueVertices };
+  }
+
+  private limitEdges(vertices: Vertex[], edges: Edge[]): { countUniqueEdges: number, limitedEdges: Edge[] } {
+    edges = removeDuplicatesById(edges);
+
+    // Remove edges that don't have both source and target in our vertex list
+    let verticesById = new Map<string, Vertex>();
+    vertices.forEach(n => verticesById.set(n.id, n));
+    edges = edges.filter(e => {
+      return verticesById.has(e.inV) && verticesById.has(e.outV);
+    });
+
+    // This should be the full set of edges applicable to these vertices
+    let countUniqueEdges = edges.length;
+
+    // Enforce max limit on edges
+    let limitedEdges = edges.slice(0, maxEdges);
+    return { limitedEdges, countUniqueEdges }
+  }
+
+  private async queryEdges(queryId: number, vertices: { id: string }[]): Promise<Edge[]> {
     // Split into multiple queries because they fail if they're too large
     // Each of the form: g.V("id1", "id2", ...).outE().dedup()
     // Picks up the outgoing edges of all vertices, and removes duplicates
