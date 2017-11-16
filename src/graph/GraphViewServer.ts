@@ -37,19 +37,13 @@ export class GraphViewServer extends EventEmitter {
   private _httpServer: http.Server;
   private _port: number | undefined;
   private _socket: GraphViewServerSocket;
-  private _previousPageState: {
-    query: string | undefined,
-    results: GraphResults | undefined,
-    errorMessage: string | undefined,
-    view: 'graph' | 'json',
-    isQueryRunning: boolean,
-    runningQueryId: number
-  };
+  private _pageState: PageState;
 
   constructor(private _configuration: GraphConfiguration) {
     super();
-    this._previousPageState = {
+    this._pageState = {
       query: undefined,
+      viewSettings: this.getViewSettings(),
       results: undefined,
       errorMessage: undefined,
       view: 'graph',
@@ -122,15 +116,26 @@ export class GraphViewServer extends EventEmitter {
     return Math.max(1, vscode.workspace.getConfiguration().get<number>('cosmosDB.graph.maxEdges'));
   }
 
+  private getViewSettings(): ViewSettings {
+    var viewSettings: ViewSettings = vscode.workspace.getConfiguration().get<ViewSettings>('cosmosDB.graph.viewSettings') || <ViewSettings>{};
+    viewSettings.vertices = viewSettings.vertices || [];
+
+    return viewSettings;
+  }
+
   private async queryAndShowResults(queryId: number, gremlinQuery: string): Promise<void> {
     var results: GraphResults | undefined;
 
     try {
-      this._previousPageState.query = gremlinQuery;
-      this._previousPageState.results = undefined;
-      this._previousPageState.errorMessage = undefined;
-      this._previousPageState.isQueryRunning = true;
-      this._previousPageState.runningQueryId = queryId;
+      this._pageState = {
+        query: gremlinQuery,
+        viewSettings: this.getViewSettings(),
+        results: undefined,
+        errorMessage: undefined,
+        isQueryRunning: true,
+        runningQueryId: queryId,
+        view: this._pageState.view
+      };
 
       // Full query results - may contain vertices and/or edges and/or other things
       var fullResults = await this.executeQuery(queryId, gremlinQuery);
@@ -144,7 +149,7 @@ export class GraphViewServer extends EventEmitter {
         countUniqueEdges: 0, // Fill in later
         limitedEdges: []     // Fill in later
       };
-      this._previousPageState.results = results;
+      this._pageState.results = results;
 
       if (results.limitedVertices.length) {
         try {
@@ -161,14 +166,14 @@ export class GraphViewServer extends EventEmitter {
     } catch (error) {
       // If there's an error, send it to the client to display
       var message = this.removeErrorCallStack(error.message || error.toString());
-      this._previousPageState.errorMessage = message;
+      this._pageState.errorMessage = message;
       this._socket.emitToClient("showQueryError", queryId, message);
       return;
     } finally {
-      this._previousPageState.isQueryRunning = false;
+      this._pageState.isQueryRunning = false;
     }
 
-    this._socket.emitToClient("showResults", queryId, results);
+    this._socket.emitToClient("showResults", queryId, results, this._pageState.viewSettings);
   }
 
   private getVertices(queryResults: any[]): GraphVertex[] {
@@ -332,19 +337,19 @@ export class GraphViewServer extends EventEmitter {
   private handleGetPageState() {
     this.log('getPageState');
 
-    if (this._previousPageState.query) {
-      this._socket.emitToClient('setPageState', this._previousPageState);
+    if (this._pageState.query) {
+      this._socket.emitToClient('setPageState', this._pageState);
     }
   }
 
   private handleSetQuery(query: string) {
     this.log('setQuery');
-    this._previousPageState.query = query;
+    this._pageState.query = query;
   }
 
   private handleSetView(view: 'graph' | 'json') {
     this.log('setView');
-    this._previousPageState.view = view;
+    this._pageState.view = view;
   }
 
   private handleQueryMessage(queryId: number, gremlin: string) {

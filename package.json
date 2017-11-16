@@ -486,6 +486,52 @@
 					"type": "integer",
 					"default": 500,
 					"description": "Set a limit for number of edges displayed in a graph visualization"
+				},
+				"cosmosDB.graph.viewSettings": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"vertices": {
+							"type": "array",
+							"title": "List of settings that apply to vertices having a given label value",
+							"items": {
+								"type": "object",
+								"required": [
+									"labelValue"
+								],
+								"additionalProperties": false,
+								"properties": {
+									"labelValue": {
+										"type": "string",
+										"description": "These settings will apply to all vertices whose label value matches the one specified here"
+									},
+									"displayProperty": {
+										"type": [
+											"string",
+											"array"
+										],
+										"description": "The vertex property to display for the text. If an array, the first specified property that exists on the vertex will be used.",
+										"default": "id"
+									},
+									"color": {
+										"type": "string",
+										"description": "The vertex color, either a CSS color name or RGB value (e.g., '#0088FF')",
+										"pattern": "^([a-zA-Z]+)|(#[0-9a-fA-F]{3})|(#[0-9a-fA-F]{6})$",
+										"default": "#0072c6"
+									}
+								}
+							}
+						}
+					},
+					"default": {
+						"vertices": [
+							{
+								"labelValue": "person",
+								"displayProperty": "id"
+							}
+						]
+					},
+					"description": "Settings for graph visualization"
 				}
 			}
 		}
