@@ -44,7 +44,7 @@ type State = "empty" | "querying" | "error" | "json-results" | "graph-results";
 
 type PageState = {
   results: GraphResults,
-  viewSettings: ViewSettings,
+  viewSettings: UserViewSettings,
   isQueryRunning: boolean,
   errorMessage?: string,
   query: string,
@@ -166,7 +166,7 @@ export class GraphClient {
       d3.select(htmlElements.title).text(title);
     });
 
-    this._socket.onServerMessage("showResults", (queryId: number, results: GraphResults, viewSettings: ViewSettings): void => {
+    this._socket.onServerMessage("showResults", (queryId: number, results: GraphResults, viewSettings: UserViewSettings): void => {
       this.log(`Received results for query ${queryId}`);
 
       if (queryId !== this._currentQueryId) {
@@ -259,7 +259,7 @@ export class GraphClient {
     d3.select("#states").attr("class", fullState);
   }
 
-  private showResults(results: GraphResults, viewSettings: ViewSettings): void {
+  private showResults(results: GraphResults, viewSettings: UserViewSettings): void {
     // queryResults may contain any type of data, not just vertices or edges
 
     // Always show the full original results JSON
@@ -337,13 +337,13 @@ export class GraphClient {
       + " " + ux + "," + uy;
   }
 
-  private findVertexSetting(v: GraphVertex, viewSettings: ViewSettings): VertexViewSetting {
+  private findVertexSetting(v: GraphVertex, viewSettings: UserViewSettings): UserVertexViewSetting {
     let label = v.label;
     let setting = viewSettings.vertices.find(s => s.labelValue === label);
     return setting;
   }
 
-  private getVertexColor(v: GraphVertex, viewSettings: ViewSettings): string {
+  private getVertexColor(v: GraphVertex, viewSettings: UserViewSettings): string {
     let setting = this.findVertexSetting(v, viewSettings);
     if (setting && setting.color) {
       return setting.color;
@@ -352,7 +352,7 @@ export class GraphClient {
     return defaultVertexFill;
   }
 
-  private getVertexDisplayText(v: GraphVertex, viewSettings: ViewSettings): string {
+  private getVertexDisplayText(v: GraphVertex, viewSettings: UserViewSettings): string {
     let setting = this.findVertexSetting(v, viewSettings);
     if (setting) {
       var propertyCandidates: string[];
@@ -382,7 +382,7 @@ export class GraphClient {
     return v.id;
   }
 
-  private displayGraph(countUniqueVertices: number, vertices: GraphVertex[], countUniqueEdges: number, edges: GraphEdge[], viewSettings: ViewSettings) {
+  private displayGraph(countUniqueVertices: number, vertices: GraphVertex[], countUniqueEdges: number, edges: GraphEdge[], viewSettings: UserViewSettings) {
     try {
       this.clearGraph();
 

@@ -38,19 +38,19 @@ interface GraphVertex {
   }
 }
 
-interface VertexViewSetting {
+interface UserVertexViewSetting {
   labelValue: string;
   displayProperty?: string | string[];
   color?: string;
 }
 
-interface ViewSettings {
-  vertices: VertexViewSetting[];
+interface UserViewSettings {
+  vertices: UserVertexViewSetting[];
 }
 
 interface PageState {
   query: string | undefined;
-  viewSettings: ViewSettings;
+  viewSettings: UserViewSettings;
   results: GraphResults | undefined;
   errorMessage: string | undefined;
   view: 'graph' | 'json';
