@@ -27,6 +27,35 @@ interface GraphEdge {
 interface GraphVertex {
   id: string;
   type: "vertex";
+  label: string;
+  properties: {
+    [key: string]: [
+      {
+        id: string;
+        value: string;
+      }
+    ]
+  }
+}
+
+interface UserVertexViewSetting {
+  labelValue: string;
+  displayProperty?: string | string[];
+  color?: string;
+}
+
+interface UserViewSettings {
+  vertices: UserVertexViewSetting[];
+}
+
+interface PageState {
+  query: string | undefined;
+  viewSettings: UserViewSettings;
+  results: GraphResults | undefined;
+  errorMessage: string | undefined;
+  view: 'graph' | 'json';
+  isQueryRunning: boolean;
+  runningQueryId: number;
 }
 
 // Messages that are sent from the server to the client

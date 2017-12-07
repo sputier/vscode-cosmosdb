@@ -1,3 +1,5 @@
+import { GraphViewServer } from "../GraphViewServer";
+
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
@@ -21,6 +23,8 @@ const markerDistanceFromVertex = 10;
 const vertexRadius = 8; // from css
 const paddingBetweenVertexAndEdge = 3;
 
+const defaultVertexFill = "#0072c6";
+
 let htmlElements: {
   debugLog: HTMLTextAreaElement,
   graphRadio: HTMLInputElement,
@@ -39,6 +43,7 @@ type State = "empty" | "querying" | "error" | "json-results" | "graph-results";
 
 type PageState = {
   results: GraphResults,
+  viewSettings: UserViewSettings,
   isQueryRunning: boolean,
   errorMessage?: string,
   query: string,
@@ -163,7 +168,7 @@ export class GraphClient {
       }
 
       if (!pageState.errorMessage) {
-        this.showResults(pageState.results);
+        this.showResults(pageState.results, pageState.viewSettings);
       } else {
         this.setStateError(pageState.errorMessage);
       }
@@ -180,13 +185,13 @@ export class GraphClient {
       d3.select(htmlElements.title).text(title);
     });
 
-    this._socket.onServerMessage("showResults", (queryId: number, results: GraphResults): void => {
+    this._socket.onServerMessage("showResults", (queryId: number, results: GraphResults, viewSettings: UserViewSettings): void => {
       this.log(`Received results for query ${queryId}`);
 
       if (queryId !== this._currentQueryId) {
         this.log("  Ignoring results, out of date");
       } else {
-        this.showResults(results);
+        this.showResults(results, viewSettings);
       }
     });
 
@@ -273,7 +278,7 @@ export class GraphClient {
     d3.select("#states").attr("class", fullState);
   }
 
-  private showResults(results: GraphResults): void {
+  private showResults(results: GraphResults, viewSettings: UserViewSettings): void {
     // queryResults may contain any type of data, not just vertices or edges
 
     // Always show the full original results JSON
@@ -286,7 +291,7 @@ export class GraphClient {
     }
 
     this.setStateResults(true);
-    this._graphView.display(results.countUniqueVertices, results.limitedVertices, results.countUniqueEdges, results.limitedEdges);
+    this._graphView.display(results.countUniqueVertices, results.limitedVertices, results.countUniqueEdges, results.limitedEdges, viewSettings);
   }
 
   private splitVerticesAndEdges(nodes: any[]): [GraphVertex[], GraphEdge[]] {
@@ -303,7 +308,7 @@ class GraphView {
   private _edges: GraphEdge[];
   private _force: any;
 
-  public display(countUniqueVertices: number, vertices: GraphVertex[], countUniqueEdges: number, edges: GraphEdge[]) {
+  public display(countUniqueVertices: number, vertices: GraphVertex[], countUniqueEdges: number, edges: GraphEdge[], viewSettings: UserViewSettings) {
     this._countUniqueVertices = countUniqueVertices;
     this._vertices = vertices;
     this._countUniqueEdges = countUniqueEdges;
@@ -408,10 +413,7 @@ class GraphView {
       .attr("x", "10px")
       .attr("y", "2px")
       .attr('font-size', 13)
-      .text((d: ForceNode) => {
-        let displayText = d.vertex.id;
-        return displayText;
-      })
+      .text((d: ForceNode) => this.getVertexDisplayText(d.vertex, viewSettings))
       ;
 
     // Nodes last so that they're always and top to be able to be dragged
@@ -421,6 +423,7 @@ class GraphView {
       .attr("class", "vertex")
       .attr("cx", (d: ForceNode) => d.x)
       .attr("cy", (d: ForceNode) => d.y)
+      .style("fill", (d: ForceNode) => this.getVertexColor(d.vertex, viewSettings))
       .call(vertexDrag)
       ;
 
@@ -510,4 +513,50 @@ class GraphView {
       + "S" + d1.x + "," + d1.y
       + " " + ux + "," + uy;
   }
+
+  private findVertexSetting(v: GraphVertex, viewSettings: UserViewSettings): UserVertexViewSetting {
+    let label = v.label;
+    let setting = viewSettings.vertices.find(s => s.labelValue === label);
+    return setting;
+  }
+
+  private getVertexColor(v: GraphVertex, viewSettings: UserViewSettings): string {
+    let setting = this.findVertexSetting(v, viewSettings);
+    if (setting && setting.color) {
+      return setting.color;
+    }
+
+    return defaultVertexFill;
+  }
+
+  private getVertexDisplayText(v: GraphVertex, viewSettings: UserViewSettings): string {
+    let setting = this.findVertexSetting(v, viewSettings);
+    if (setting) {
+      var propertyCandidates: string[];
+      if (typeof setting.displayProperty === "string") {
+        propertyCandidates = [setting.displayProperty];
+      } else {
+        // It's an array
+        propertyCandidates = <string[]>setting.displayProperty;
+      }
+
+      let displayText = null;
+      for (let i = 0; i < propertyCandidates.length; ++i) {
+        let candidate = propertyCandidates[i];
+        if (candidate === "id") {
+          return v.id;
+        } else {
+          if (candidate in v.properties) {
+            let property = v.properties[candidate][0];
+            if (property) {
+              return property.value;
+            }
+          }
+        }
+      }
+    }
+
+    return v.id;
+  }
+
 }
