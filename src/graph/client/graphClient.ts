@@ -411,8 +411,8 @@ class GraphView {
       .text((d: ForceNode) => {
         let properties = (<any>d.vertex).properties;
 
-        if (properties && properties["name"] && properties && properties["name"][0]) {
-          return properties["name"][0];
+        if (properties && properties["name"] && properties && properties["name"][0] && properties["name"][0].value) {
+          return properties["name"][0].value;
         }
 
         let displayText = d.vertex.id;
