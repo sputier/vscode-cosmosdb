@@ -409,6 +409,12 @@ class GraphView {
       .attr("y", "2px")
       .attr('font-size', 13)
       .text((d: ForceNode) => {
+        let properties = (<any>d.vertex).properties;
+
+        if (properties && properties["name"] && properties && properties["name"][0]) {
+          return properties["name"][0];
+        }
+
         let displayText = d.vertex.id;
         return displayText;
       })
